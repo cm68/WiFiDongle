@@ -29,7 +29,17 @@
  */
 #include <WiFi.h>
 #include <WiFiServer.h>
+#include <SPI.h>
+#include <Wire.h>
 #include <EEPROM.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+#include <Fonts/Org_01.h>
+#include <Fonts/FreeMono9pt7b.h>
+#define FONT &Org_01
+
+#define SCREEN_ADDRESS 0x3C ///< See datasheet for Address; 0x3D for 128x64, 0x3C for 128x32
+Adafruit_SSD1306 display(128, 32, &Wire, -1);
 
 //how many clients should be able to telnet to this ESP32
 #define MAX_SRV_CLIENTS 1
@@ -98,7 +108,7 @@ again:
   }
   Serial.println("using configuration: " + Config);
   cbuf = Config.c_str();
-
+  // Serial.printf("string form: %s\n", cbuf);
   p = 0;
   while ((c = *cbuf++)) {
     // Serial.printf("state: %d char: 0x%x num: %d\n", p, c, num);
@@ -226,27 +236,30 @@ int editeeprom() {
   Newconfig += "\",\"";
   Newconfig += password;
   Newconfig += "\",";
-  Newconfig += port;
+  Newconfig += String(port);
   Newconfig += ":";
-  Newconfig += baud;
+  Newconfig += String(baud);
   Newconfig += "\n";
-
+  // Serial.println("built newconfig " + Newconfig);
   if (Config.equals(Newconfig)) {
+    Serial.println("no difference");
     return 0;
-  } else {
-    Serial.printf("EEPROM updated\n\r");
-    EEPROM.begin(EEPROM_SIZE);
-    EEPROM.writeString(0, Newconfig);
-    EEPROM.commit();
-    EEPROM.end();
-    return 1;
   }
+  Serial.println("writing eeprom with" + Newconfig);
+  EEPROM.begin(EEPROM_SIZE);
+  EEPROM.writeString(0, Newconfig);
+  EEPROM.commit();
+  EEPROM.end();
+  Serial.println("done");
+  return 1;
 }
 
 #define LED 2
 
-void setup() {
+int display_present = 1;
 
+void setup() {
+  
   pinMode(LED, OUTPUT);
 
   Serial.begin(115200);
@@ -254,24 +267,51 @@ void setup() {
 
   parseeeprom();
 
+  if(!display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS)) {
+    Serial.println(F("SSD1306 allocation failed"));
+    display_present = 0;
+  } else {
+    display.clearDisplay();
+    display.setFont(FONT);
+    display.setTextSize(2);
+    display.setTextColor(SSD1306_WHITE);
+    display.setCursor(0, 29);
+    display.printf("%d:%d", port, baud);
+    display.setCursor(0, 10);
+    display.println(ssid);
+    display.display();
+  }
+
   WiFi.mode(WIFI_STA);
   WiFi.begin(ssid, password);
 
   Serial.println("Connecting Wifi ");
-  for (int loops = 3; loops > 0; loops--) {
+  for (int loops = 30; loops > 0; loops--) {
     if (WiFi.status() == WL_CONNECTED) {
       Serial.println("");
       Serial.print("WiFi connected ");
       Serial.print("IP address: ");
       Serial.println(WiFi.localIP());
+
+      if (display_present) {
+        display.clearDisplay();
+        display.setFont(FONT);
+        display.setTextSize(2);
+        display.setTextColor(SSD1306_WHITE);
+        display.setCursor(0, 29);
+        display.printf("%d:%d", port, baud);
+        display.setCursor(0, 10);
+        display.println(WiFi.localIP());
+        display.display();
+      }
       break;
     } else {
-      Serial.println(loops);
+      Serial.printf("%d (status %d)\n", loops, WiFi.status());
       delay(1000);
     }
   }
   if (WiFi.status() != WL_CONNECTED) {
-    Serial.println("WiFi connect failed");
+    Serial.printf("WiFi connect failed, status %d\n", WiFi.status());
     delay(1000);
     (void)editeeprom();
     ESP.restart();
@@ -326,7 +366,7 @@ void loop() {
       }
     }
   } else {
-    Serial.println("WiFi not connected!");
+    Serial.printf("WiFi not connected! status %d\n", WiFi.status());
     if (client) {
       client.stop();
       client = 0;
