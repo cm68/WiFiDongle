@@ -56,7 +56,7 @@ char password[30];
  * 
  * eeprom contents are a formatted string
  * of the form:
- * "ssid","password",dataport1:baud1
+ * "ssid","password",dataport1:baud1:flowctl:rx,tx,rts,cts
  * where the port and baud rate are integers
  * if the contents are not well formed, we default
  */
@@ -69,12 +69,32 @@ char password[30];
 #define DEFAULT_PASS "yourpassword"
 #define DEFAULT_PORT1 23
 #define DEFAULT_BAUD1 38400
+#define DEFAULT_FLOW 0
+#define DEFAULT_RX 16
+#define DEFAULT_TX 17
+#define DEFAULT_RTS 5
+#define DEFAULT_CTS 4
 
 WiFiServer server;
 WiFiClient client;
 
 int port;
 int baud;
+int flowctl;
+int rxpin, txpin, rtspin, ctspin;
+int needswrite;
+
+const char *wifistatus(int status) {
+  switch (status) {
+    case WL_IDLE_STATUS:     return "idle";
+    case WL_NO_SSID_AVAIL:   return "SSID not found";
+    case WL_CONNECTED:       return "connected";
+    case WL_CONNECT_FAILED:  return "connect failed";
+    case WL_CONNECTION_LOST: return "connection lost";
+    case WL_DISCONNECTED:    return "disconnected";
+    default:                 return "unknown";
+  }
+}
 
 /*
  * this is a somewhat robust state machine parser for the Config string.
@@ -87,6 +107,7 @@ void parseeeprom() {
   int p;
   int num;
   int failed = 0;
+  needswrite = 0;
 
   EEPROM.begin(EEPROM_SIZE);
   String data = EEPROM.readString(0);
@@ -102,6 +123,16 @@ again:
     Config += DEFAULT_PORT1;
     Config += ":";
     Config += DEFAULT_BAUD1;
+    Config += ":";
+    Config += DEFAULT_FLOW;
+    Config += ":";
+    Config += DEFAULT_RX;
+    Config += ",";
+    Config += DEFAULT_TX;
+    Config += ",";
+    Config += DEFAULT_RTS;
+    Config += ",";
+    Config += DEFAULT_CTS;
     Config += "\n";
   } else {
     Config = data;
@@ -161,8 +192,70 @@ again:
       case 7:
         if (c == '\n') {
           baud = num;
+          flowctl = 0;
+          rxpin = DEFAULT_RX; txpin = DEFAULT_TX;
+          rtspin = DEFAULT_RTS; ctspin = DEFAULT_CTS;
+          needswrite = 1;
+          p = 13;
+        } else if (c == ':') {
+          baud = num;
           p++;
           num = 0;
+        } else {
+          if ((c < '0') || (c > '9')) goto fail;
+          num = (num * 10) + (c - '0');
+        }
+        break;
+      case 8:
+        if (c == '\n') {
+          flowctl = num;
+          rxpin = DEFAULT_RX; txpin = DEFAULT_TX;
+          rtspin = DEFAULT_RTS; ctspin = DEFAULT_CTS;
+          needswrite = 1;
+          p = 13;
+        } else if (c == ':') {
+          flowctl = num;
+          p++;
+          num = 0;
+        } else {
+          if ((c < '0') || (c > '9')) goto fail;
+          num = (num * 10) + (c - '0');
+        }
+        break;
+      case 9:
+        if (c == ',') {
+          rxpin = num;
+          p++;
+          num = 0;
+        } else {
+          if ((c < '0') || (c > '9')) goto fail;
+          num = (num * 10) + (c - '0');
+        }
+        break;
+      case 10:
+        if (c == ',') {
+          txpin = num;
+          p++;
+          num = 0;
+        } else {
+          if ((c < '0') || (c > '9')) goto fail;
+          num = (num * 10) + (c - '0');
+        }
+        break;
+      case 11:
+        if (c == ',') {
+          rtspin = num;
+          p++;
+          num = 0;
+        } else {
+          if ((c < '0') || (c > '9')) goto fail;
+          num = (num * 10) + (c - '0');
+        }
+        break;
+      case 12:
+        if (c == '\n') {
+          ctspin = num;
+          p++;
         } else {
           if ((c < '0') || (c > '9')) goto fail;
           num = (num * 10) + (c - '0');
@@ -183,7 +276,40 @@ fail:
   goto again;
 }
 
-void editstr(char *prompt, char *buf) {
+String buildconfig() {
+  String c = "\"";
+  c += ssid;
+  c += "\",\"";
+  c += password;
+  c += "\",";
+  c += String(port);
+  c += ":";
+  c += String(baud);
+  c += ":";
+  c += String(flowctl);
+  c += ":";
+  c += String(rxpin);
+  c += ",";
+  c += String(txpin);
+  c += ",";
+  c += String(rtspin);
+  c += ",";
+  c += String(ctspin);
+  c += "\n";
+  return c;
+}
+
+void writeeeprom(String newconfig) {
+  Serial.println("writing eeprom with " + newconfig);
+  EEPROM.begin(EEPROM_SIZE);
+  EEPROM.writeString(0, newconfig);
+  EEPROM.commit();
+  EEPROM.end();
+  Config = newconfig;
+  Serial.println("done");
+}
+
+void editstr(const char *prompt, char *buf) {
   unsigned char c;
   int cursor = strlen(buf);
 
@@ -216,7 +342,7 @@ void editstr(char *prompt, char *buf) {
   }
 }
 
-void editnum(char *prompt, int *valp) {
+void editnum(const char *prompt, int *valp) {
   char buf[20];
   sprintf(buf, "%d", *valp);
   editstr(prompt, buf);
@@ -230,27 +356,18 @@ int editeeprom() {
   editstr("password", password);
   editnum("port1", &port);
   editnum("baud1", &baud);
+  editnum("flowctl (0=off, 1=rtscts)", &flowctl);
+  editnum("rx pin", &rxpin);
+  editnum("tx pin", &txpin);
+  editnum("rts pin", &rtspin);
+  editnum("cts pin", &ctspin);
 
-  Newconfig = "\"";
-  Newconfig += ssid;
-  Newconfig += "\",\"";
-  Newconfig += password;
-  Newconfig += "\",";
-  Newconfig += String(port);
-  Newconfig += ":";
-  Newconfig += String(baud);
-  Newconfig += "\n";
-  // Serial.println("built newconfig " + Newconfig);
+  Newconfig = buildconfig();
   if (Config.equals(Newconfig)) {
     Serial.println("no difference");
     return 0;
   }
-  Serial.println("writing eeprom with" + Newconfig);
-  EEPROM.begin(EEPROM_SIZE);
-  EEPROM.writeString(0, Newconfig);
-  EEPROM.commit();
-  EEPROM.end();
-  Serial.println("done");
+  writeeeprom(Newconfig);
   return 1;
 }
 
@@ -266,6 +383,10 @@ void setup() {
   Serial.println("\nConnecting");
 
   parseeeprom();
+  if (needswrite) {
+    writeeeprom(buildconfig());
+    needswrite = 0;
+  }
 
   if(!display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS)) {
     Serial.println(F("SSD1306 allocation failed"));
@@ -306,12 +427,12 @@ void setup() {
       }
       break;
     } else {
-      Serial.printf("%d (status %d)\n", loops, WiFi.status());
+      Serial.printf("%d (%s)\n", loops, wifistatus(WiFi.status()));
       delay(1000);
     }
   }
   if (WiFi.status() != WL_CONNECTED) {
-    Serial.printf("WiFi connect failed, status %d\n", WiFi.status());
+    Serial.printf("WiFi connect failed: %s\n", wifistatus(WiFi.status()));
     delay(1000);
     (void)editeeprom();
     ESP.restart();
@@ -319,6 +440,11 @@ void setup() {
 
   //start UART and the server
   Serial2.begin(baud);
+  Serial2.setPins(rxpin, txpin, ctspin, rtspin);
+  if (flowctl) {
+    Serial2.setHwFlowCtrlMode(UART_HW_FLOWCTRL_CTS_RTS, 64);
+    Serial.println("Hardware flow control enabled");
+  }
 
   server.begin(port);
   server.setNoDelay(true);
@@ -366,7 +492,7 @@ void loop() {
       }
     }
   } else {
-    Serial.printf("WiFi not connected! status %d\n", WiFi.status());
+    Serial.printf("WiFi not connected: %s\n", wifistatus(WiFi.status()));
     if (client) {
       client.stop();
       client = 0;

@@ -1,2 +1,9 @@
 .pio/
 build/
+
+# KiCad generated files
+kicad/*.gbr
+kicad/*.gbrjob
+kicad/fab.zip
+kicad/fp-info-cache
+kicad/WiFiDongle-backups/

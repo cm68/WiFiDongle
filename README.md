@@ -67,14 +67,39 @@ make monitor BAUD=38400
 
 ## Configuration
 
-On first boot, the device uses default WiFi credentials defined in the source.
-Edit the defaults (`DEFAULT_SSID`, `DEFAULT_PASS`, `DEFAULT_PORT1`, `DEFAULT_BAUD1`)
-in `WiFiDongle.ino` before flashing.
+On first boot, the device uses default credentials defined in the source
+(`DEFAULT_SSID`, `DEFAULT_PASS`, etc. in `WiFiDongle.ino`).
 
-At runtime, send any character over the serial console to enter the configuration
-editor. Changes are saved to EEPROM and persist across reboots.
+At runtime, send any character over the serial console to enter the
+configuration editor. Changes are saved to EEPROM and persist across reboots.
+If WiFi fails to connect within 30 seconds, the editor opens automatically.
 
-The EEPROM stores: SSID, password, TCP port, and UART baud rate.
+### EEPROM format
 
-If WiFi fails to connect within 30 seconds, the device enters the configuration
-editor automatically, then reboots.
+The EEPROM stores a single ASCII string:
+
+```
+"ssid","password",port:baud:flowctl:rx,tx,rts,cts
+```
+
+| Field    | Description                          | Default |
+|----------|--------------------------------------|---------|
+| ssid     | WiFi network name                    | yourssid |
+| password | WiFi password                        | yourpassword |
+| port     | TCP port for the telnet server       | 23      |
+| baud     | UART baud rate for Serial2           | 38400   |
+| flowctl  | Hardware flow control (0=off, 1=RTS/CTS) | 0   |
+| rx       | Serial2 RX GPIO pin                  | 16      |
+| tx       | Serial2 TX GPIO pin                  | 17      |
+| rts      | Serial2 RTS GPIO pin                 | 5       |
+| cts      | Serial2 CTS GPIO pin                 | 4       |
+
+The format is backward compatible: if older fields are present without the
+newer ones (flowctl, pins), defaults are filled in and written back to EEPROM
+automatically on boot.
+
+## PCB design
+
+The `kicad/` directory contains the KiCad schematic and PCB layout for a
+carrier board. It includes a custom ESP32 DevKit V1 footprint and symbol
+library. Open `kicad/WiFiDongle.kicad_pro` in KiCad 8 to view or edit.
