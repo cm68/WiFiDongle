@@ -87,6 +87,10 @@ int displayht;
 int needswrite;
 unsigned long led_off_time = 0;
 #define LED_ON_MS 50
+uint8_t last_tx = 0;
+uint8_t last_rx = 0;
+unsigned long last_display_update = 0;
+#define DISPLAY_UPDATE_MS 250
 
 const char *wifistatus(int status) {
   switch (status) {
@@ -416,6 +420,23 @@ int editeeprom() {
 
 int display_present = 1;
 
+void update_traffic_display() {
+  if (!display_present || displayht <= 32) return;
+  if (millis() - last_display_update < DISPLAY_UPDATE_MS) return;
+  last_display_update = millis();
+  display->fillRect(0, 38, 128, 26, SSD1306_BLACK);
+  display->setFont(FONT);
+  display->setTextSize(2);
+  display->setTextColor(SSD1306_WHITE);
+  char tc = (last_tx >= ' ' && last_tx < 0x7f) ? last_tx : '.';
+  char rc = (last_rx >= ' ' && last_rx < 0x7f) ? last_rx : '.';
+  display->setCursor(0, 48);
+  display->printf("tx %c %02x", tc, last_tx);
+  display->setCursor(0, 62);
+  display->printf("rx %c %02x", rc, last_rx);
+  display->display();
+}
+
 void setup() {
   
   pinMode(LED, OUTPUT);
@@ -523,7 +544,8 @@ void loop() {
         if (client.available()) {
           digitalWrite(LED, HIGH);
           led_off_time = millis() + LED_ON_MS;
-          Serial2.write(client.read());
+          last_tx = client.read();
+          Serial2.write(last_tx);
         }
 
         if (Serial2.available()) {
@@ -533,7 +555,9 @@ void loop() {
           uint8_t sbuf[len];
           Serial2.readBytes(sbuf, len);
           client.write(sbuf, len);
+          last_rx = sbuf[len - 1];
         }
+        update_traffic_display();
       }
     }
   } else {
