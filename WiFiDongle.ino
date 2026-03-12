@@ -38,8 +38,8 @@
 #include <Fonts/FreeMono9pt7b.h>
 #define FONT &Org_01
 
-#define SCREEN_ADDRESS 0x3C ///< See datasheet for Address; 0x3D for 128x64, 0x3C for 128x32
-Adafruit_SSD1306 display(128, 32, &Wire, -1);
+#define SCREEN_ADDRESS 0x3C
+Adafruit_SSD1306 *display;
 
 //how many clients should be able to telnet to this ESP32
 #define MAX_SRV_CLIENTS 1
@@ -56,7 +56,7 @@ char password[30];
  * 
  * eeprom contents are a formatted string
  * of the form:
- * "ssid","password",dataport1:baud1:flowctl:rx,tx,rts,cts
+ * "ssid","password",dataport1:baud1:flowctl:rx,tx,rts,cts:displayht
  * where the port and baud rate are integers
  * if the contents are not well formed, we default
  */
@@ -74,6 +74,7 @@ char password[30];
 #define DEFAULT_TX 17
 #define DEFAULT_RTS 5
 #define DEFAULT_CTS 4
+#define DEFAULT_DISPLAYHT 32
 
 WiFiServer server;
 WiFiClient client;
@@ -82,7 +83,10 @@ int port;
 int baud;
 int flowctl;
 int rxpin, txpin, rtspin, ctspin;
+int displayht;
 int needswrite;
+unsigned long led_off_time = 0;
+#define LED_ON_MS 50
 
 const char *wifistatus(int status) {
   switch (status) {
@@ -133,6 +137,8 @@ again:
     Config += DEFAULT_RTS;
     Config += ",";
     Config += DEFAULT_CTS;
+    Config += ":";
+    Config += DEFAULT_DISPLAYHT;
     Config += "\n";
   } else {
     Config = data;
@@ -195,8 +201,9 @@ again:
           flowctl = 0;
           rxpin = DEFAULT_RX; txpin = DEFAULT_TX;
           rtspin = DEFAULT_RTS; ctspin = DEFAULT_CTS;
+          displayht = DEFAULT_DISPLAYHT;
           needswrite = 1;
-          p = 13;
+          p = 14;
         } else if (c == ':') {
           baud = num;
           p++;
@@ -211,8 +218,9 @@ again:
           flowctl = num;
           rxpin = DEFAULT_RX; txpin = DEFAULT_TX;
           rtspin = DEFAULT_RTS; ctspin = DEFAULT_CTS;
+          displayht = DEFAULT_DISPLAYHT;
           needswrite = 1;
-          p = 13;
+          p = 14;
         } else if (c == ':') {
           flowctl = num;
           p++;
@@ -255,6 +263,21 @@ again:
       case 12:
         if (c == '\n') {
           ctspin = num;
+          displayht = DEFAULT_DISPLAYHT;
+          needswrite = 1;
+          p = 14;
+        } else if (c == ':') {
+          ctspin = num;
+          p++;
+          num = 0;
+        } else {
+          if ((c < '0') || (c > '9')) goto fail;
+          num = (num * 10) + (c - '0');
+        }
+        break;
+      case 13:
+        if (c == '\n') {
+          displayht = num;
           p++;
         } else {
           if ((c < '0') || (c > '9')) goto fail;
@@ -295,6 +318,8 @@ String buildconfig() {
   c += String(rtspin);
   c += ",";
   c += String(ctspin);
+  c += ":";
+  c += String(displayht);
   c += "\n";
   return c;
 }
@@ -352,6 +377,21 @@ void editnum(const char *prompt, int *valp) {
 int editeeprom() {
   String Newconfig;
 
+  Serial.println("Scanning for WiFi networks...");
+  int n = WiFi.scanNetworks();
+  if (n == 0) {
+    Serial.println("  No networks found");
+  } else {
+    Serial.printf("  %d network(s) found:\n", n);
+    for (int i = 0; i < n; i++) {
+      Serial.printf("  %2d: %-32s  %ddBm  %s\n", i + 1,
+        WiFi.SSID(i).c_str(), WiFi.RSSI(i),
+        WiFi.encryptionType(i) == WIFI_AUTH_OPEN ? "open" : "encrypted");
+    }
+  }
+  WiFi.scanDelete();
+  Serial.println();
+
   editstr("ssid", ssid);
   editstr("password", password);
   editnum("port1", &port);
@@ -361,6 +401,7 @@ int editeeprom() {
   editnum("tx pin", &txpin);
   editnum("rts pin", &rtspin);
   editnum("cts pin", &ctspin);
+  editnum("display height (32 or 64)", &displayht);
 
   Newconfig = buildconfig();
   if (Config.equals(Newconfig)) {
@@ -383,24 +424,26 @@ void setup() {
   Serial.println("\nConnecting");
 
   parseeeprom();
+  Serial.printf("  pins: rx=%d tx=%d rts=%d cts=%d\n", rxpin, txpin, rtspin, ctspin);
   if (needswrite) {
     writeeeprom(buildconfig());
     needswrite = 0;
   }
 
-  if(!display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS)) {
+  display = new Adafruit_SSD1306(128, displayht, &Wire, -1);
+  if(!display->begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS)) {
     Serial.println(F("SSD1306 allocation failed"));
     display_present = 0;
   } else {
-    display.clearDisplay();
-    display.setFont(FONT);
-    display.setTextSize(2);
-    display.setTextColor(SSD1306_WHITE);
-    display.setCursor(0, 29);
-    display.printf("%d:%d", port, baud);
-    display.setCursor(0, 10);
-    display.println(ssid);
-    display.display();
+    display->clearDisplay();
+    display->setFont(FONT);
+    display->setTextSize(2);
+    display->setTextColor(SSD1306_WHITE);
+    display->setCursor(0, displayht - 3);
+    display->printf("%d:%d", port, baud);
+    display->setCursor(0, 10);
+    display->println(ssid);
+    display->display();
   }
 
   WiFi.mode(WIFI_STA);
@@ -415,15 +458,15 @@ void setup() {
       Serial.println(WiFi.localIP());
 
       if (display_present) {
-        display.clearDisplay();
-        display.setFont(FONT);
-        display.setTextSize(2);
-        display.setTextColor(SSD1306_WHITE);
-        display.setCursor(0, 29);
-        display.printf("%d:%d", port, baud);
-        display.setCursor(0, 10);
-        display.println(WiFi.localIP());
-        display.display();
+        display->clearDisplay();
+        display->setFont(FONT);
+        display->setTextSize(2);
+        display->setTextColor(SSD1306_WHITE);
+        display->setCursor(0, 10);
+        display->println(WiFi.localIP());
+        display->setCursor(0, displayht > 32 ? 29 : displayht - 3);
+        display->printf("%d:%d", port, baud);
+        display->display();
       }
       break;
     } else {
@@ -478,12 +521,14 @@ void loop() {
         client = 0;
       } else {
         if (client.available()) {
-          digitalWrite(LED,HIGH);
+          digitalWrite(LED, HIGH);
+          led_off_time = millis() + LED_ON_MS;
           Serial2.write(client.read());
         }
 
         if (Serial2.available()) {
-          digitalWrite(LED,HIGH);
+          digitalWrite(LED, HIGH);
+          led_off_time = millis() + LED_ON_MS;
           size_t len = Serial2.available();
           uint8_t sbuf[len];
           Serial2.readBytes(sbuf, len);
@@ -499,5 +544,8 @@ void loop() {
     }
     delay(1000);
   }
-  digitalWrite(LED, LOW);
+  if (led_off_time && millis() >= led_off_time) {
+    digitalWrite(LED, LOW);
+    led_off_time = 0;
+  }
 }
