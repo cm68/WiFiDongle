@@ -32,6 +32,7 @@
 #include <SPI.h>
 #include <Wire.h>
 #include <EEPROM.h>
+#include <driver/uart.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 #include "FreeSans8pt7b.h"
@@ -98,6 +99,159 @@ uint8_t last_tx = 0;
 uint8_t last_rx = 0;
 unsigned long last_display_update = 0;
 #define DISPLAY_UPDATE_MS 250
+
+// telnet protocol bytes
+#define IAC   0xff
+#define DONT  0xfe
+#define DO    0xfd
+#define WONT  0xfc
+#define WILL  0xfb
+#define SB    0xfa
+#define SE    0xf0
+#define BRK   0xf3
+#define IP    0xf4  // interrupt process
+#define AO    0xf5  // abort output
+#define AYT   0xf6  // are you there
+#define TNOP  0xf1  // telnet NOP (avoid conflict with ESP32 NOP macro)
+
+#define OPT_ECHO 1
+#define OPT_SGA  3
+
+// connection mode: detected from first byte of client traffic
+#define MODE_DETECT 0   // waiting for first byte
+#define MODE_TELNET 1   // telnet client: IAC parsing + 0xFF escaping active
+#define MODE_RAW    2   // raw client: fully transparent, no protocol handling
+int conn_mode = MODE_DETECT;
+
+// IAC state machine (only active in MODE_TELNET)
+int iac_state = 0;     // 0=data, 1=got IAC, 2=got cmd, 3=subneg, 4=subneg got IAC
+uint8_t iac_cmd = 0;   // WILL/WONT/DO/DONT byte, saved for option reply
+
+static const char *iac_cmd_name(uint8_t cmd) {
+  switch (cmd) {
+    case WILL: return "WILL";
+    case WONT: return "WONT";
+    case DO:   return "DO";
+    case DONT: return "DONT";
+    case SB:   return "SB";
+    default:   return "??";
+  }
+}
+
+// send our initial telnet negotiation: character mode + server echo
+void telnet_negotiate() {
+  uint8_t charmode[] = { IAC, WILL, OPT_SGA, IAC, DO, OPT_SGA, IAC, WILL, OPT_ECHO };
+  client.write(charmode, sizeof(charmode));
+  Serial.println("telnet: sent WILL SGA, DO SGA, WILL ECHO");
+}
+
+// send a telnet option reply
+void telnet_reply(uint8_t cmd, uint8_t opt) {
+  uint8_t buf[] = { IAC, cmd, opt };
+  client.write(buf, 3);
+  Serial.printf("telnet: sent %s %d\n", iac_cmd_name(cmd), opt);
+}
+
+// process a byte from the client in telnet mode.
+// returns 1 if it's a data byte to forward to UART, 0 if consumed by protocol.
+int telnet_input(uint8_t c) {
+  switch (iac_state) {
+  case 0: // normal data
+    if (c == IAC) {
+      iac_state = 1;
+      return 0;
+    }
+    return 1;
+
+  case 1: // got IAC
+    if (c == IAC) {           // escaped 0xFF data byte
+      iac_state = 0;
+      return 1;
+    }
+    if (c == SB) {
+      Serial.print("telnet: SB ");
+      iac_state = 3;
+      return 0;
+    }
+    if (c >= WILL && c <= DONT) {
+      iac_cmd = c;
+      iac_state = 2;
+      return 0;
+    }
+    // 2-byte commands
+    switch (c) {
+    case BRK: {
+      Serial.println("telnet: BRK");
+      // send break: 100 bit-times ensures framing error at any baud rate
+      uint8_t brk = 0;
+      uart_write_bytes_with_break(2, &brk, 1, 100);
+      break;
+    }
+    case AYT:
+      Serial.println("telnet: AYT");
+      client.write("\r\n[Yes]\r\n", 9);
+      break;
+    case IP:  Serial.println("telnet: IP");  break;
+    case AO:  Serial.println("telnet: AO");  break;
+    case TNOP: break;
+    default:
+      Serial.printf("telnet: cmd %02x\n", c);
+      break;
+    }
+    iac_state = 0;
+    return 0;
+
+  case 2: // option byte following WILL/WONT/DO/DONT
+    Serial.printf("telnet: %s %d\n", iac_cmd_name(iac_cmd), c);
+    if (c == OPT_SGA || c == OPT_ECHO) {
+      // accept SGA and ECHO for character mode
+      if (iac_cmd == WILL) telnet_reply(DO, c);
+      else if (iac_cmd == DO) telnet_reply(WILL, c);
+    } else {
+      // refuse everything else
+      if (iac_cmd == WILL) telnet_reply(DONT, c);
+      else if (iac_cmd == DO) telnet_reply(WONT, c);
+    }
+    iac_state = 0;
+    return 0;
+
+  case 3: // subnegotiation data: consume until IAC SE
+    if (c == IAC) {
+      iac_state = 4;
+    } else {
+      Serial.printf("%02x ", c);
+    }
+    return 0;
+
+  case 4: // subneg: got IAC, expecting SE
+    if (c == SE) {
+      Serial.println("SE");
+      iac_state = 0;
+    } else {
+      Serial.printf("%02x ", c);
+      iac_state = 3;
+    }
+    return 0;
+  }
+  iac_state = 0;
+  return 1;
+}
+
+// write UART data to telnet client, escaping 0xFF as IAC IAC
+void telnet_write(uint8_t *buf, size_t len) {
+  size_t start = 0;
+  for (size_t i = 0; i < len; i++) {
+    if (buf[i] == 0xff) {
+      // flush data before this byte
+      if (i > start) client.write(buf + start, i - start);
+      uint8_t iac_iac[] = { IAC, IAC };
+      client.write(iac_iac, 2);
+      start = i + 1;
+    }
+  }
+  // flush remainder
+  if (start < len) client.write(buf + start, len - start);
+}
 
 const char *wifistatus(int status) {
   switch (status) {
@@ -542,6 +696,8 @@ void loop() {
     if (server.hasClient()) {
       client = server.available();
       if (!client) Serial.println("available broken");
+      conn_mode = MODE_DETECT;
+      iac_state = 0;
       Serial.print("client connected from ");
       Serial.println(client.remoteIP());
     }
@@ -553,10 +709,31 @@ void loop() {
         client = 0;
       } else {
         if (client.available()) {
+          uint8_t c = client.read();
+
+          // first byte from client determines protocol
+          if (conn_mode == MODE_DETECT) {
+            if (c == IAC) {
+              conn_mode = MODE_TELNET;
+              Serial.println("telnet client detected");
+              telnet_negotiate();
+              iac_state = 1;  // we already consumed the IAC
+              goto skip_data;
+            } else {
+              conn_mode = MODE_RAW;
+              Serial.println("raw client detected");
+            }
+          }
+
+          if (conn_mode == MODE_TELNET) {
+            if (!telnet_input(c)) goto skip_data;
+          }
+
           digitalWrite(LED, HIGH);
           led_off_time = millis() + LED_ON_MS;
-          last_tx = client.read();
-          Serial2.write(last_tx);
+          last_tx = c;
+          Serial2.write(c);
+          skip_data: ;
         }
 
         if (Serial2.available()) {
@@ -565,7 +742,11 @@ void loop() {
           size_t len = Serial2.available();
           uint8_t sbuf[len];
           Serial2.readBytes(sbuf, len);
-          client.write(sbuf, len);
+          if (conn_mode == MODE_TELNET) {
+            telnet_write(sbuf, len);
+          } else {
+            client.write(sbuf, len);
+          }
           last_rx = sbuf[len - 1];
         }
         update_traffic_display();
