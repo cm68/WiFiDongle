@@ -34,9 +34,16 @@
 #include <EEPROM.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
-#include <Fonts/Org_01.h>
-#include <Fonts/FreeMono9pt7b.h>
-#define FONT &Org_01
+#include "FreeSans8pt7b.h"
+#define FONT &FreeSans8pt7b
+
+// FreeSans8pt7b: yAdvance=17, ascent=11, '0' is 9px wide, '.' is 4px wide
+// zero-filled IP (000.000.000.000) = 12*9 + 3*4 = 120px, fits 128px
+#define FONT_HEIGHT 11          // glyph ascent in pixels
+#define LINE_SPACING 5          // gap between bottom of one line and top of next
+#define LINE_HEIGHT (FONT_HEIGHT + LINE_SPACING)  // 16px per line
+// baseline Y for line N (0-based): first baseline at FONT_HEIGHT + 1
+#define LINE_Y(n) (FONT_HEIGHT + 1 + (n) * LINE_HEIGHT)
 
 #define SCREEN_ADDRESS 0x3C
 Adafruit_SSD1306 *display;
@@ -424,15 +431,17 @@ void update_traffic_display() {
   if (!display_present || displayht <= 32) return;
   if (millis() - last_display_update < DISPLAY_UPDATE_MS) return;
   last_display_update = millis();
-  display->fillRect(0, 38, 128, 26, SSD1306_BLACK);
+  // clear lines 2-3 (bottom half of 64px display) and redraw
+  display->fillRect(0, LINE_Y(2) - FONT_HEIGHT, 128, 2 * LINE_HEIGHT, SSD1306_BLACK);
   display->setFont(FONT);
-  display->setTextSize(2);
+  display->setTextSize(1);
+  display->setTextWrap(false);
   display->setTextColor(SSD1306_WHITE);
   char tc = (last_tx >= ' ' && last_tx < 0x7f) ? last_tx : '.';
   char rc = (last_rx >= ' ' && last_rx < 0x7f) ? last_rx : '.';
-  display->setCursor(0, 48);
+  display->setCursor(0, LINE_Y(2));
   display->printf("tx %c %02x", tc, last_tx);
-  display->setCursor(0, 62);
+  display->setCursor(0, LINE_Y(3));
   display->printf("rx %c %02x", rc, last_rx);
   display->display();
 }
@@ -458,12 +467,13 @@ void setup() {
   } else {
     display->clearDisplay();
     display->setFont(FONT);
-    display->setTextSize(2);
+    display->setTextSize(1);
+    display->setTextWrap(false);
     display->setTextColor(SSD1306_WHITE);
-    display->setCursor(0, displayht - 3);
-    display->printf("%d:%d", port, baud);
-    display->setCursor(0, 10);
+    display->setCursor(0, LINE_Y(0));
     display->println(ssid);
+    display->setCursor(0, LINE_Y(1));
+    display->printf("%d:%d", port, baud);
     display->display();
   }
 
@@ -481,11 +491,12 @@ void setup() {
       if (display_present) {
         display->clearDisplay();
         display->setFont(FONT);
-        display->setTextSize(2);
+        display->setTextSize(1);
+        display->setTextWrap(false);
         display->setTextColor(SSD1306_WHITE);
-        display->setCursor(0, 10);
+        display->setCursor(0, LINE_Y(0));
         display->println(WiFi.localIP());
-        display->setCursor(0, displayht > 32 ? 29 : displayht - 3);
+        display->setCursor(0, LINE_Y(1));
         display->printf("%d:%d", port, baud);
         display->display();
       }

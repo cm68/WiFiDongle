@@ -6,7 +6,7 @@ See https://www.zen-room.org/the-zen-room/serial-to-wifi-plug
 ## Hardware
 
 - ESP32 dev board
-- Optional: SSD1306 128x32 OLED display (I2C, address 0x3C)
+- Optional: SSD1306 128x32 or 128x64 OLED display (I2C, address 0x3C)
 
 ## Prerequisites
 
@@ -79,7 +79,7 @@ If WiFi fails to connect within 30 seconds, the editor opens automatically.
 The EEPROM stores a single ASCII string:
 
 ```
-"ssid","password",port:baud:flowctl:rx,tx,rts,cts
+"ssid","password",port:baud:flowctl:rx,tx,rts,cts:displayht
 ```
 
 | Field    | Description                          | Default |
@@ -93,10 +93,26 @@ The EEPROM stores a single ASCII string:
 | tx       | Serial2 TX GPIO pin                  | 17      |
 | rts      | Serial2 RTS GPIO pin                 | 5       |
 | cts      | Serial2 CTS GPIO pin                 | 4       |
+| displayht| OLED display height (32 or 64)       | 32      |
 
 The format is backward compatible: if older fields are present without the
 newer ones (flowctl, pins), defaults are filled in and written back to EEPROM
 automatically on boot.
+
+## Custom font
+
+`FreeSans8pt7b.h` was generated from the GNU FreeSans TrueType font using
+the Adafruit GFX `fontconvert` tool:
+
+```sh
+cd /path/to/Adafruit_GFX_Library/fontconvert
+make
+./fontconvert /usr/share/fonts/truetype/freefont/FreeSans.ttf 8 > FreeSans8pt7b.h
+```
+
+The `fontconvert` source is included in the
+[Adafruit GFX Library](https://github.com/adafruit/Adafruit-GFX-Library/tree/master/fontconvert).
+It requires the FreeType development library (`libfreetype-dev` on Debian/Ubuntu).
 
 ## PCB design
 
