@@ -114,6 +114,42 @@ The `fontconvert` source is included in the
 [Adafruit GFX Library](https://github.com/adafruit/Adafruit-GFX-Library/tree/master/fontconvert).
 It requires the FreeType development library (`libfreetype-dev` on Debian/Ubuntu).
 
+## RS-232 connector and signal direction
+
+The PCB is designed to be stuffed with a **female DB connector**, making the
+board a DCE (Data Communications Equipment). This is correct for a device
+that is connected to by a DTE (e.g. a PC with a male connector).
+
+A DCE drives two signals:
+
+| Signal | Direction | Description |
+|--------|-----------|-------------|
+| TXD    | DCE → DTE | Data output (ESP32 TX → connector pin 2) |
+| CTS    | DCE → DTE | Clear to send (ESP32 RTS → connector pin 8) |
+
+And receives two signals:
+
+| Signal | Direction | Description |
+|--------|-----------|-------------|
+| RXD    | DTE → DCE | Data input (connector pin 3 → ESP32 RX) |
+| RTS    | DTE → DCE | Request to send (connector pin 7 → ESP32 CTS) |
+
+Note that the ESP32's RTS output maps to the connector's CTS pin, and the
+ESP32's CTS input maps to the connector's RTS pin — the signal names cross
+over at the DTE/DCE boundary.
+
+**Important:** If the board is stuffed with a male connector instead, the
+TXD/RXD and RTS/CTS pairs will be reversed, since a male connector implies
+DTE pinout. The board would then drive the wrong pins.
+
+When hardware flow control is disabled, the ESP32 asserts (drives low) the
+RTS pin so that a connected DTE always sees CTS active.
+
+At boot, CTS is held inactive (disasserted) until WiFi connects, then
+asserted. This prevents the DTE from sending data before the network is
+ready, and also serves as a quick visual check with an RS-232 monitor that
+the CTS signal path is working.
+
 ## PCB design
 
 The `kicad/` directory contains the KiCad schematic and PCB layout for a

@@ -632,6 +632,10 @@ void setup() {
     needswrite = 0;
   }
 
+  // disassert RTS (DTE sees CTS inactive) until network is ready
+  pinMode(rtspin, OUTPUT);
+  digitalWrite(rtspin, HIGH);
+
   display = new Adafruit_SSD1306(128, displayht, &Wire, -1);
   if(!display->begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS)) {
     Serial.println(F("SSD1306 allocation failed"));
@@ -691,6 +695,9 @@ void setup() {
   if (flowctl) {
     Serial2.setHwFlowCtrlMode(UART_HW_FLOWCTRL_CTS_RTS, 64);
     Serial.println("Hardware flow control enabled");
+  } else {
+    pinMode(rtspin, OUTPUT);
+    digitalWrite(rtspin, LOW);  // assert RTS: always ready to receive
   }
 
   server.begin(port);
