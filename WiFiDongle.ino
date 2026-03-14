@@ -78,8 +78,8 @@ char password[30];
 #define DEFAULT_PORT1 23
 #define DEFAULT_BAUD1 38400
 #define DEFAULT_FLOW 0
-#define DEFAULT_RX 16
-#define DEFAULT_TX 17
+#define DEFAULT_RX 17
+#define DEFAULT_TX 16
 #define DEFAULT_RTS 5
 #define DEFAULT_CTS 4
 #define DEFAULT_DISPLAYHT 32
@@ -582,21 +582,39 @@ int editeeprom() {
 int display_present = 1;
 
 void update_traffic_display() {
-  if (!display_present || displayht <= 32) return;
+  if (!display_present) return;
   if (millis() - last_display_update < DISPLAY_UPDATE_MS) return;
   last_display_update = millis();
-  // clear lines 2-3 (bottom half of 64px display) and redraw
-  display->fillRect(0, LINE_Y(2) - FONT_HEIGHT, 128, 2 * LINE_HEIGHT, SSD1306_BLACK);
+
   display->setFont(FONT);
   display->setTextSize(1);
   display->setTextWrap(false);
   display->setTextColor(SSD1306_WHITE);
-  char tc = (last_tx >= ' ' && last_tx < 0x7f) ? last_tx : '.';
-  char rc = (last_rx >= ' ' && last_rx < 0x7f) ? last_rx : '.';
-  display->setCursor(0, LINE_Y(2));
-  display->printf("tx %c %02x", tc, last_tx);
-  display->setCursor(0, LINE_Y(3));
-  display->printf("rx %c %02x", rc, last_rx);
+
+  // flow control indicator at last char position on line 1
+  char fc = ' ';
+  if (flowctl) {
+    int cts_blocked = digitalRead(ctspin);  // HIGH = remote not accepting our data
+    int rts_full = digitalRead(rtspin);     // HIGH = we deasserted RTS (buffer full)
+    if (cts_blocked && rts_full) fc = 'X';
+    else if (cts_blocked) fc = 'B';
+    else if (rts_full) fc = 'F';
+  }
+  display->fillRect(119, LINE_Y(1) - FONT_HEIGHT, 9, LINE_HEIGHT, SSD1306_BLACK);
+  display->setCursor(119, LINE_Y(1));
+  display->print(fc);
+
+  if (displayht > 32) {
+    // clear lines 2-3 (bottom half of 64px display) and redraw
+    display->fillRect(0, LINE_Y(2) - FONT_HEIGHT, 128, 2 * LINE_HEIGHT, SSD1306_BLACK);
+    char tc = (last_tx >= ' ' && last_tx < 0x7f) ? last_tx : '.';
+    char rc = (last_rx >= ' ' && last_rx < 0x7f) ? last_rx : '.';
+    display->setCursor(0, LINE_Y(2));
+    display->printf("tx %c %02x", tc, last_tx);
+    display->setCursor(0, LINE_Y(3));
+    display->printf("rx %c %02x", rc, last_rx);
+  }
+
   display->display();
 }
 

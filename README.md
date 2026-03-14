@@ -89,8 +89,8 @@ The EEPROM stores a single ASCII string:
 | port     | TCP port for the telnet server       | 23      |
 | baud     | UART baud rate for Serial2           | 38400   |
 | flowctl  | Hardware flow control (0=off, 1=RTS/CTS) | 0   |
-| rx       | Serial2 RX GPIO pin                  | 16      |
-| tx       | Serial2 TX GPIO pin                  | 17      |
+| rx       | Serial2 RX GPIO pin                  | 17      |
+| tx       | Serial2 TX GPIO pin                  | 16      |
 | rts      | Serial2 RTS GPIO pin                 | 5       |
 | cts      | Serial2 CTS GPIO pin                 | 4       |
 | displayht| OLED display height (32 or 64)       | 32      |

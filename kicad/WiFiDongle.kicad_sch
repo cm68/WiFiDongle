@@ -2477,7 +2477,7 @@
 	)
 	(wire
 		(pts
-			(xy 66.04 50.8) (xy 66.04 88.9)
+			(xy 63.5 50.8) (xy 63.5 88.9)
 		)
 		(stroke
 			(width 0)
@@ -2517,7 +2517,7 @@
 	)
 	(wire
 		(pts
-			(xy 66.04 50.8) (xy 205.74 50.8)
+			(xy 63.5 50.8) (xy 205.74 50.8)
 		)
 		(stroke
 			(width 0)
@@ -3443,7 +3443,7 @@
 	)
 	(symbol
 		(lib_id "Connector_Generic:Conn_01x15")
-		(at 71.12 106.68 0)
+		(at 68.58 106.68 0)
 		(unit 1)
 		(exclude_from_sim no)
 		(in_bom yes)
@@ -3452,7 +3452,7 @@
 		(fields_autoplaced yes)
 		(uuid "bc319b44-810b-45ef-81d5-01900da2d62d")
 		(property "Reference" "J1"
-			(at 73.66 105.4099 0)
+			(at 71.12 105.4099 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -3461,16 +3461,17 @@
 			)
 		)
 		(property "Value" "Conn_01x15"
-			(at 73.66 107.9499 0)
+			(at 71.12 107.9499 0)
 			(effects
 				(font
 					(size 1.27 1.27)
 				)
 				(justify left)
+				(hide yes)
 			)
 		)
 		(property "Footprint" "Connector_PinHeader_2.54mm:PinHeader_1x15_P2.54mm_Vertical"
-			(at 71.12 106.68 0)
+			(at 68.58 106.68 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -3479,7 +3480,7 @@
 			)
 		)
 		(property "Datasheet" "~"
-			(at 71.12 106.68 0)
+			(at 68.58 106.68 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -3488,7 +3489,7 @@
 			)
 		)
 		(property "Description" "Generic connector, single row, 01x15, script generated (kicad-library-utils/schlib/autogen/connector/)"
-			(at 71.12 106.68 0)
+			(at 68.58 106.68 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -3982,6 +3983,7 @@
 					(size 1.27 1.27)
 				)
 				(justify left)
+				(hide yes)
 			)
 		)
 		(property "Footprint" "Connector_PinHeader_2.54mm:PinHeader_1x15_P2.54mm_Vertical"
