@@ -155,3 +155,11 @@ the CTS signal path is working.
 The `kicad/` directory contains the KiCad schematic and PCB layout for a
 carrier board. It includes a custom ESP32 DevKit V1 footprint and symbol
 library. Open `kicad/WiFiDongle.kicad_pro` in KiCad 8 to view or edit.
+
+## Display pin order
+
+Many displays are compatible with the 4-pin header, but some have a different
+arrangement of the power pins. The PCB implements the most common pin order:
+GND, VCC, SCLK, SDATA. However, one family of 128x64 boards uses VCC, GND,
+SCLK, SDATA. This can be corrected by cutting the circuit board traces and
+using magnet wire or wire wrap wire to reorder the pins.
