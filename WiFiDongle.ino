@@ -35,8 +35,12 @@
 #include <driver/uart.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
+#include <Adafruit_SH110X.h>
 #include "FreeSans8pt7b.h"
 #define FONT &FreeSans8pt7b
+
+#define DISPLAY_SSD1306 0
+#define DISPLAY_SH1107  1
 
 // FreeSans8pt7b: yAdvance=17, ascent=11, '0' is 9px wide, '.' is 4px wide
 // zero-filled IP (000.000.000.000) = 12*9 + 3*4 = 120px, fits 128px
@@ -47,7 +51,19 @@
 #define LINE_Y(n) (FONT_HEIGHT + 1 + (n) * LINE_HEIGHT)
 
 #define SCREEN_ADDRESS 0x3C
-Adafruit_SSD1306 *display;
+Adafruit_GFX *display;          // common base for drawing ops
+Adafruit_SSD1306 *disp_ssd1306; // non-NULL if SSD1306
+Adafruit_SH1107 *disp_sh1107;   // non-NULL if SH1107
+
+void disp_clear() {
+  if (disp_ssd1306) disp_ssd1306->clearDisplay();
+  else disp_sh1107->clearDisplay();
+}
+
+void disp_show() {
+  if (disp_ssd1306) disp_ssd1306->display();
+  else disp_sh1107->display();
+}
 
 //how many clients should be able to telnet to this ESP32
 #define MAX_SRV_CLIENTS 1
@@ -64,7 +80,7 @@ char password[30];
  * 
  * eeprom contents are a formatted string
  * of the form:
- * "ssid","password",dataport1:baud1:flowctl:rx,tx,rts,cts:displayht
+ * "ssid","password",dataport1:baud1:flowctl:rx,tx,rts,cts:displayht:displaydrv
  * where the port and baud rate are integers
  * if the contents are not well formed, we default
  */
@@ -83,6 +99,7 @@ char password[30];
 #define DEFAULT_RTS 5
 #define DEFAULT_CTS 4
 #define DEFAULT_DISPLAYHT 32
+#define DEFAULT_DISPLAYDRV DISPLAY_SSD1306
 
 WiFiServer server;
 WiFiClient client;
@@ -92,6 +109,7 @@ int baud;
 int flowctl;
 int rxpin, txpin, rtspin, ctspin;
 int displayht;
+int displaydrv;
 int needswrite;
 unsigned long led_off_time = 0;
 #define LED_ON_MS 50
@@ -304,6 +322,8 @@ again:
     Config += DEFAULT_CTS;
     Config += ":";
     Config += DEFAULT_DISPLAYHT;
+    Config += ":";
+    Config += DEFAULT_DISPLAYDRV;
     Config += "\n";
   } else {
     Config = data;
@@ -367,8 +387,9 @@ again:
           rxpin = DEFAULT_RX; txpin = DEFAULT_TX;
           rtspin = DEFAULT_RTS; ctspin = DEFAULT_CTS;
           displayht = DEFAULT_DISPLAYHT;
+          displaydrv = DEFAULT_DISPLAYDRV;
           needswrite = 1;
-          p = 14;
+          p = 15;
         } else if (c == ':') {
           baud = num;
           p++;
@@ -384,8 +405,9 @@ again:
           rxpin = DEFAULT_RX; txpin = DEFAULT_TX;
           rtspin = DEFAULT_RTS; ctspin = DEFAULT_CTS;
           displayht = DEFAULT_DISPLAYHT;
+          displaydrv = DEFAULT_DISPLAYDRV;
           needswrite = 1;
-          p = 14;
+          p = 15;
         } else if (c == ':') {
           flowctl = num;
           p++;
@@ -429,8 +451,9 @@ again:
         if (c == '\n') {
           ctspin = num;
           displayht = DEFAULT_DISPLAYHT;
+          displaydrv = DEFAULT_DISPLAYDRV;
           needswrite = 1;
-          p = 14;
+          p = 15;
         } else if (c == ':') {
           ctspin = num;
           p++;
@@ -443,6 +466,21 @@ again:
       case 13:
         if (c == '\n') {
           displayht = num;
+          displaydrv = DEFAULT_DISPLAYDRV;
+          needswrite = 1;
+          p = 15;
+        } else if (c == ':') {
+          displayht = num;
+          p++;
+          num = 0;
+        } else {
+          if ((c < '0') || (c > '9')) goto fail;
+          num = (num * 10) + (c - '0');
+        }
+        break;
+      case 14:
+        if (c == '\n') {
+          displaydrv = num;
           p++;
         } else {
           if ((c < '0') || (c > '9')) goto fail;
@@ -485,6 +523,8 @@ String buildconfig() {
   c += String(ctspin);
   c += ":";
   c += String(displayht);
+  c += ":";
+  c += String(displaydrv);
   c += "\n";
   return c;
 }
@@ -567,6 +607,7 @@ int editeeprom() {
   editnum("rts pin", &rtspin);
   editnum("cts pin", &ctspin);
   editnum("display height (32 or 64)", &displayht);
+  editnum("display driver (0=SSD1306, 1=SH1107)", &displaydrv);
 
   Newconfig = buildconfig();
   if (Config.equals(Newconfig)) {
@@ -589,7 +630,7 @@ void update_traffic_display() {
   display->setFont(FONT);
   display->setTextSize(1);
   display->setTextWrap(false);
-  display->setTextColor(SSD1306_WHITE);
+  display->setTextColor(1);
 
   // flow control indicator at last char position on line 1
   char fc = ' ';
@@ -600,13 +641,13 @@ void update_traffic_display() {
     else if (cts_blocked) fc = 'B';
     else if (rts_full) fc = 'F';
   }
-  display->fillRect(119, LINE_Y(1) - FONT_HEIGHT, 9, LINE_HEIGHT, SSD1306_BLACK);
+  display->fillRect(119, LINE_Y(1) - FONT_HEIGHT, 9, LINE_HEIGHT, 0);
   display->setCursor(119, LINE_Y(1));
   display->print(fc);
 
   if (displayht > 32) {
     // clear lines 2-3 (bottom half of 64px display) and redraw
-    display->fillRect(0, LINE_Y(2) - FONT_HEIGHT, 128, 2 * LINE_HEIGHT, SSD1306_BLACK);
+    display->fillRect(0, LINE_Y(2) - FONT_HEIGHT, 128, 2 * LINE_HEIGHT, 0);
     char tc = (last_tx >= ' ' && last_tx < 0x7f) ? last_tx : '.';
     char rc = (last_rx >= ' ' && last_rx < 0x7f) ? last_rx : '.';
     display->setCursor(0, LINE_Y(2));
@@ -615,7 +656,7 @@ void update_traffic_display() {
     display->printf("rx %c %02x", rc, last_rx);
   }
 
-  display->display();
+  disp_show();
 }
 
 void setup() {
@@ -636,21 +677,34 @@ void setup() {
   pinMode(rtspin, OUTPUT);
   digitalWrite(rtspin, HIGH);
 
-  display = new Adafruit_SSD1306(128, displayht, &Wire, -1);
-  if(!display->begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS)) {
-    Serial.println(F("SSD1306 allocation failed"));
+  bool display_ok;
+  disp_ssd1306 = NULL;
+  disp_sh1107 = NULL;
+  if (displaydrv == DISPLAY_SH1107) {
+    disp_sh1107 = new Adafruit_SH1107(displayht, 128, &Wire, -1);
+    display = disp_sh1107;
+    display_ok = disp_sh1107->begin(SCREEN_ADDRESS, true);
+  } else {
+    disp_ssd1306 = new Adafruit_SSD1306(128, displayht, &Wire, -1);
+    display = disp_ssd1306;
+    display_ok = disp_ssd1306->begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS);
+  }
+  if (!display_ok) {
+    Serial.printf("%s init failed\n", displaydrv == DISPLAY_SH1107 ? "SH1107" : "SSD1306");
     display_present = 0;
   } else {
-    display->clearDisplay();
+    if (displaydrv == DISPLAY_SH1107)
+      display->setRotation(3);
+    disp_clear();
     display->setFont(FONT);
     display->setTextSize(1);
     display->setTextWrap(false);
-    display->setTextColor(SSD1306_WHITE);
+    display->setTextColor(1);
     display->setCursor(0, LINE_Y(0));
     display->println(ssid);
     display->setCursor(0, LINE_Y(1));
     display->printf("%d:%d", port, baud);
-    display->display();
+    disp_show();
   }
 
   WiFi.mode(WIFI_STA);
@@ -665,16 +719,16 @@ void setup() {
       Serial.println(WiFi.localIP());
 
       if (display_present) {
-        display->clearDisplay();
+        disp_clear();
         display->setFont(FONT);
         display->setTextSize(1);
         display->setTextWrap(false);
-        display->setTextColor(SSD1306_WHITE);
+        display->setTextColor(1);
         display->setCursor(0, LINE_Y(0));
         display->println(WiFi.localIP());
         display->setCursor(0, LINE_Y(1));
         display->printf("%d:%d", port, baud);
-        display->display();
+        disp_show();
       }
       break;
     } else {

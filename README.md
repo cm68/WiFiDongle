@@ -6,7 +6,7 @@ See https://www.zen-room.org/the-zen-room/serial-to-wifi-plug
 ## Hardware
 
 - ESP32 dev board
-- Optional: SSD1306 128x32 or 128x64 OLED display (I2C, address 0x3C)
+- Optional: SSD1306 or SH1107 128x32 or 128x64 OLED display (I2C, address 0x3C)
 
 ## Prerequisites
 
@@ -79,21 +79,22 @@ If WiFi fails to connect within 30 seconds, the editor opens automatically.
 The EEPROM stores a single ASCII string:
 
 ```
-"ssid","password",port:baud:flowctl:rx,tx,rts,cts:displayht
+"ssid","password",port:baud:flowctl:rx,tx,rts,cts:displayht:displaydrv
 ```
 
-| Field    | Description                          | Default |
-|----------|--------------------------------------|---------|
-| ssid     | WiFi network name                    | yourssid |
-| password | WiFi password                        | yourpassword |
-| port     | TCP port for the telnet server       | 23      |
-| baud     | UART baud rate for Serial2           | 38400   |
-| flowctl  | Hardware flow control (0=off, 1=RTS/CTS) | 0   |
-| rx       | Serial2 RX GPIO pin                  | 17      |
-| tx       | Serial2 TX GPIO pin                  | 16      |
-| rts      | Serial2 RTS GPIO pin                 | 5       |
-| cts      | Serial2 CTS GPIO pin                 | 4       |
-| displayht| OLED display height (32 or 64)       | 32      |
+| Field      | Description                          | Default |
+|------------|--------------------------------------|---------|
+| ssid       | WiFi network name                    | yourssid |
+| password   | WiFi password                        | yourpassword |
+| port       | TCP port for the telnet server       | 23      |
+| baud       | UART baud rate for Serial2           | 38400   |
+| flowctl    | Hardware flow control (0=off, 1=RTS/CTS) | 0   |
+| rx         | Serial2 RX GPIO pin                  | 17      |
+| tx         | Serial2 TX GPIO pin                  | 16      |
+| rts        | Serial2 RTS GPIO pin                 | 5       |
+| cts        | Serial2 CTS GPIO pin                 | 4       |
+| displayht  | OLED display height (32 or 64)       | 32      |
+| displaydrv | Display driver (0=SSD1306, 1=SH1107) | 0       |
 
 The format is backward compatible: if older fields are present without the
 newer ones (flowctl, pins), defaults are filled in and written back to EEPROM
